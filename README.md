@@ -1,3 +1,10 @@
+## Data Completeness / Completude dos Dados
+33/36 months available (91.7% coverage) — 3 months missing from the source
+(not download failures). See `docs/data_dictionary.md` for details.
+
+33/36 meses disponíveis (91,7% de cobertura) — 3 meses ausentes na fonte
+(não são falhas de download). Detalhes em `docs/data_dictionary.md`.
+
 # SIH Hospital Admissions Analysis (SUS/DataSUS)
 
 🚧 **Status: in progress / em construção**
