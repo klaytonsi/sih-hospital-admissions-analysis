@@ -23,13 +23,20 @@ de Janeiro, 2023–2025.
 
 ### Repository structure
 
-notebooks/       Jupyter notebooks (data download, cleaning, export)
+```
+notebooks/        Jupyter notebooks (data download, cleaning, export)
 sql/              SQL queries (DuckDB)
 data/processed/   Aggregated, processed data (no individual records)
 docs/             Data dictionary and dashboard screenshots
+```
 
 ### Data source
 DataSUS – SIH (Sistema de Informações Hospitalares), public and open data.
+
+### Data completeness
+33/36 months available (91.7% coverage). The 3 missing months
+(Jun/2023, Aug/2023, Jul/2024) do not exist at the source; they are not
+download failures. See the [data dictionary](docs/data_dictionary.md).
 
 ---
 
@@ -54,15 +61,23 @@ Recorte: estado do Rio de Janeiro, 2023–2025.
 
 ### Estrutura do repositório
 
-notebooks/       Notebooks Jupyter (download, limpeza, exportação)
+```
+notebooks/        Notebooks Jupyter (download, limpeza, exportação)
 sql/              Consultas SQL (DuckDB)
 data/processed/   Dados processados e agregados (sem registros individuais)
 docs/             Dicionário de dados e prints do dashboard
+```
 
 ### Fonte dos dados
 DataSUS – SIH (Sistema de Informações Hospitalares), dados públicos e abertos.
 
+### Completude dos dados
+33/36 meses disponíveis (91,7% de cobertura). Os 3 meses ausentes
+(jun/2023, ago/2023, jul/2024) não existem na fonte; não são falhas de
+download. Veja o [dicionário de dados](docs/data_dictionary.md).
+
 ---
 
 ## License
+
 MIT — see [LICENSE](LICENSE)
