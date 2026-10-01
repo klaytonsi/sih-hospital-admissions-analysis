@@ -14,7 +14,7 @@
 2. The part of the total value that is not in SH or SP. It equals the sum of the federal and local-manager supplements (`VAL_SH_FED + VAL_SP_FED + VAL_SH_GES + VAL_SP_GES`).
 3. Validated with Rio de Janeiro data, 2023 to 2025: zero residual in all 33 months. Jun/2023, Aug/2023 and Jul/2024 are missing because they do not exist in the source.
 
-  ## Limitations / Limitações
+## Limitations / Limitações
 
 ### Data completeness / Completude dos dados
 
