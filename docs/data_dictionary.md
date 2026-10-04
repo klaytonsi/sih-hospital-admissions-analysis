@@ -38,6 +38,18 @@
 - **Meaning:** 1 when the total AIH amount (`val_tot`) is zero, 0 otherwise. Rows were not removed. To count hospitalizations, use all rows. For average cost, use only `flag_valor_zero = 0`, because zeros would pull the average down.
 - **Validation:** 8,986 rows with zero amount (about 0.4% of the 2,270,016 in the study window). There are no negative values.
 
+### flag_aih_repetida
+
+#### PT
+- **Fórmula:** `COUNT(*) OVER (PARTITION BY N_AIH) > 1`
+- **Significado:** vale 1 em todas as linhas de uma N_AIH que aparece 2 ou mais vezes no recorte, e 0 nas N_AIH que aparecem uma vez. Não são cópias exatas: nenhuma N_AIH repetida tem a mesma data de saída em todas as linhas. As linhas não foram apagadas. Para contar internações, use `eh_internacao = 1`; para somar valores, use todas as linhas. Observação: as linhas marcadas têm permanência média de 24,9 dias, contra 5,8 nas não marcadas.
+- **Validação:** 26.357 linhas marcadas, de 5.287 números de AIH repetidos, o que dá 21.070 linhas excedentes (cerca de 0,9% das 2.270.016 do recorte). Dessas AIHs, 4.159 se repetem em competências diferentes e 1.128 na mesma competência.
+
+#### EN
+- **Formula:** `COUNT(*) OVER (PARTITION BY N_AIH) > 1`
+- **Meaning:** 1 on every row of an N_AIH that appears 2 or more times in the study window, 0 on N_AIH that appear once. They are not exact copies: no repeated N_AIH has the same discharge date on all its rows. Rows were not removed. To count hospitalizations, use `eh_internacao = 1`; to sum amounts, use all rows. Note: flagged rows have an average stay of 24.9 days, versus 5.8 for unflagged rows.
+- **Validation:** 26,357 flagged rows, from 5,287 repeated AIH numbers, giving 21,070 excess rows (about 0.9% of the 2,270,016 in the study window). Of these AIH, 4,159 repeat across different competence months and 1,128 within the same one.
+
 ## Limitations / Limitações
 
 ### Data completeness / Completude dos dados
