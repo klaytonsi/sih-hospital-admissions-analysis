@@ -52,6 +52,16 @@
 
 ## Limitations / Limitações
 
+### Period scope / Recorte do período
+
+#### PT
+
+A análise considera internações com data de saída (`dt_saida`) entre 2023-01-01 e 2025-09-30. Saídas de out a dez/2025 foram excluídas: o SIH fatura a internação depois da saída (até 3 meses em 99,88% das AIHs dos arquivos baixados; o restante levou 4 a 5 meses) e só baixamos competências até dez/2025, então esses meses ficariam incompletos e mostrariam uma queda falsa. Também ficaram fora 39.398 saídas de 2022 faturadas em 2023. No total, 216.479 AIHs (8,71%) ficam fora da `rd_clean`; os arquivos brutos não foram alterados.
+
+#### EN
+
+The analysis covers hospitalizations with a discharge date (`dt_saida`) between 2023-01-01 and 2025-09-30. Discharges from Oct to Dec 2025 were excluded: SIH bills a hospitalization after discharge (within 3 months for 99.88% of AIHs in the downloaded files; the rest took 4 to 5 months), and we only downloaded billing months up to Dec 2025, so those months would be incomplete and show a false drop. Also excluded are 39,398 discharges from 2022 that were billed in 2023. In total, 216,479 AIHs (8.71%) are outside `rd_clean`; the raw files were not changed.
+
 ### Data completeness / Completude dos dados
 
 #### PT
