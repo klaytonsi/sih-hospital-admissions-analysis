@@ -26,6 +26,18 @@
 - **Meaning:** 1 on the last row of each N_AIH (latest discharge date), 0 on the others. One hospitalization can have several rows; this column flags the one that counts as the hospitalization. Use it to count hospitalizations and deaths. To sum amounts (`val_tot`), use all rows.
 - **Validation:** the sum of `eh_internacao` (2,248,946) equals the number of distinct N_AIH in the study window. Deaths: 144,682 on the flagged row vs 144,684 across all rows (difference of 2).
 
+### flag_valor_zero
+
+#### PT
+- **Fórmula:** `val_tot = 0`
+- **Significado:** vale 1 quando o valor total da AIH (`val_tot`) é zero e 0 nas demais. As linhas não foram apagadas. Para contar internações, use todas as linhas. Para médias de custo, use só `flag_valor_zero = 0`, porque os zeros puxariam a média para baixo.
+- **Validação:** 8.986 linhas com valor zero (cerca de 0,4% das 2.270.016 do recorte). Não há valores negativos.
+
+#### EN
+- **Formula:** `val_tot = 0`
+- **Meaning:** 1 when the total AIH amount (`val_tot`) is zero, 0 otherwise. Rows were not removed. To count hospitalizations, use all rows. For average cost, use only `flag_valor_zero = 0`, because zeros would pull the average down.
+- **Validation:** 8,986 rows with zero amount (about 0.4% of the 2,270,016 in the study window). There are no negative values.
+
 ## Limitations / Limitações
 
 ### Data completeness / Completude dos dados
