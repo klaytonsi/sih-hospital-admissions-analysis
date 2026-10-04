@@ -14,6 +14,18 @@
 2. The part of the total value that is not in SH or SP. It equals the sum of the federal and local-manager supplements (`VAL_SH_FED + VAL_SP_FED + VAL_SH_GES + VAL_SP_GES`).
 3. Validated with Rio de Janeiro data, 2023 to 2025: zero residual in all 33 months. Jun/2023, Aug/2023 and Jul/2024 are missing because they do not exist in the source.
 
+### eh_internacao
+
+#### PT
+- **Fórmula:** `ROW_NUMBER() OVER (PARTITION BY N_AIH ORDER BY dt_saida DESC, ANO_CMPT DESC, MES_CMPT DESC) = 1`
+- **Significado:** vale 1 na última linha de cada N_AIH (saída mais recente) e 0 nas demais. Uma internação pode ter várias linhas; esta coluna marca a que conta como a internação. Use-a para contar internações e óbitos. Para somar valores (`val_tot`), use todas as linhas.
+- **Validação:** a soma de `eh_internacao` (2.248.946) é igual ao número de N_AIH distintos no recorte. Óbitos: 144.682 na linha marcada contra 144.684 em todas as linhas (diferença de 2).
+
+#### EN
+- **Formula:** `ROW_NUMBER() OVER (PARTITION BY N_AIH ORDER BY dt_saida DESC, ANO_CMPT DESC, MES_CMPT DESC) = 1`
+- **Meaning:** 1 on the last row of each N_AIH (latest discharge date), 0 on the others. One hospitalization can have several rows; this column flags the one that counts as the hospitalization. Use it to count hospitalizations and deaths. To sum amounts (`val_tot`), use all rows.
+- **Validation:** the sum of `eh_internacao` (2,248,946) equals the number of distinct N_AIH in the study window. Deaths: 144,682 on the flagged row vs 144,684 across all rows (difference of 2).
+
 ## Limitations / Limitações
 
 ### Data completeness / Completude dos dados
@@ -31,3 +43,4 @@ Scope: SIH hospital admissions (RD group) for Rio de Janeiro, with discharges fr
 2. Missing months: Jun/2023, Aug/2023 and Jul/2024. They are not listed in the DATASUS catalog, so the gap comes from the source, not from a download failure.
 3. Effect on the analysis: these months are missing, not zero. Annual totals for 2023 and 2024 are understated, and monthly series have gaps.
 4. Checked on 2026-09-27.
+   
