@@ -78,3 +78,22 @@ Scope: SIH hospital admissions (RD group) for Rio de Janeiro, with discharges fr
 3. Effect on the analysis: these months are missing, not zero. Annual totals for 2023 and 2024 are understated, and monthly series have gaps.
 4. Checked on 2026-09-27.
    
+## External sources / Fontes externas
+
+### cid10_cat (CID-10 category lookup / tabela de categorias CID-10)
+
+#### PT
+
+- **Fonte:** arquivo `CID10.DBF` do DATASUS (FTP: `ftp.datasus.gov.br/dissemin/publicos/SIM/CID10/TABELAS/`), em categorias de 3 caracteres (colunas `cat3` e `descricao`).
+- **Complemento manual:** o teste de cobertura encontrou 6 internações sem descrição, em 4 códigos (U09, U099, U10, U109). Eles pertencem a 2 categorias criadas pela OMS para a COVID-19 e ausentes da tabela antiga do DATASUS: U09 (condição pós-COVID-19) e U10 (síndrome inflamatória multissistêmica associada à COVID-19). A tabela passou de 2.046 para 2.048 linhas.
+- **Origem do texto:** atualizações de uso emergencial da CID-10 da OMS (em inglês). A tradução para o português é do autor.
+- **Identificação:** coluna `fonte` ("DATASUS CID10.DBF" ou "complemento manual (OMS)").
+- **Validação:** 2.048 linhas, 2.048 `cat3` distintos, 0 nulos; cobertura de 2.248.946 de 2.248.946 internações (100%).
+
+#### EN
+
+- **Source:** DATASUS `CID10.DBF` file (FTP: `ftp.datasus.gov.br/dissemin/publicos/SIM/CID10/TABELAS/`), at 3-character category level (columns `cat3` and `descricao`).
+- **Manual addition:** the coverage test found 6 admissions without a description, across 4 codes (U09, U099, U10, U109). They belong to 2 categories created by WHO for COVID-19 and missing from the old DATASUS table: U09 (post COVID-19 condition) and U10 (multisystem inflammatory syndrome associated with COVID-19). The table went from 2,046 to 2,048 rows.
+- **Text origin:** WHO ICD-10 emergency-use updates (English). The Portuguese translation is the author's own.
+- **Traceability:** column `fonte` ("DATASUS CID10.DBF" or "complemento manual (OMS)").
+- **Validation:** 2,048 rows, 2,048 distinct `cat3`, 0 nulls; coverage of 2,248,946 of 2,248,946 admissions (100%).
