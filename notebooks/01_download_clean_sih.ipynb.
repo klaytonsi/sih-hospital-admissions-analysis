@@ -1,0 +1,1162 @@
+{
+  "cells": [
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "4ipxW2nEjAky"
+      },
+      "outputs": [],
+      "source": [
+        "# 1. Conectar ao Google Drive — é aqui que tudo vai ficar salvo\n",
+        "#    entre uma sessão do Colab e outra (resolve o problema de perder tudo).\n",
+        "from google.colab import drive\n",
+        "drive.mount('/content/drive')\n",
+        "\n",
+        "# 2. Criar a pasta no Drive onde os arquivos brutos (.dbc) vão ficar.\n",
+        "import os\n",
+        "PASTA_BRUTO = \"/content/drive/MyDrive/sih_datasus/raw_dbc\"\n",
+        "os.makedirs(PASTA_BRUTO, exist_ok=True)\n",
+        "\n",
+        "# 3. Apontar o \"cache\" da biblioteca pysus para essa pasta do Drive.\n",
+        "#    Isso é o checkpoint da etapa de download: quando o notebook for\n",
+        "#    baixar um arquivo, a biblioteca olha se ele já existe aqui — se\n",
+        "#    existir, não baixa de novo. Não precisamos escrever essa lógica\n",
+        "#    na mão, a biblioteca já faz isso por nós.\n",
+        "os.environ[\"PYSUS_CACHEPATH\"] = PASTA_BRUTO\n",
+        "\n",
+        "# 4. Instalar a biblioteca que sabe baixar dados do DataSUS.\n",
+        "!pip install pysus -q\n",
+        "\n",
+        "# 5. Parâmetros do recorte que já decidimos na Etapa 2.\n",
+        "ESTADO = \"RJ\"\n",
+        "ANOS = [2023, 2024, 2025]\n",
+        "GRUPO = \"RD\"  # RD = \"AIH Reduzida\" — é o arquivo principal de internações do SIH\n",
+        "\n",
+        "# 6. Pasta onde os parquets baixados ficam salvos (usada em todo o notebook).\n",
+        "PASTA_PARQUET = \"/content/drive/MyDrive/sih_datasus/raw_dbc/downloads/ducklake/sih\""
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ZtT4aYg7dnCZ"
+      },
+      "outputs": [],
+      "source": [
+        "from pysus import sih\n",
+        "\n",
+        "caminhos_baixados = []\n",
+        "\n",
+        "for ano in range(2023, 2026):\n",
+        "    arquivos = sih(\n",
+        "        state=\"RJ\",\n",
+        "        year=ano,\n",
+        "        month=list(range(1, 13)),  # jan a dez\n",
+        "        group=\"RD\",\n",
+        "        as_dataframe=False,  # queremos os caminhos, não já concatenar tudo em memória\n",
+        "    )\n",
+        "    caminhos_baixados.extend(arquivos)\n",
+        "    print(f\"{ano}: {len(arquivos)} arquivos baixados\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ax0e8W3nnE69"
+      },
+      "outputs": [],
+      "source": [
+        "import re\n",
+        "\n",
+        "meses_por_ano = {}\n",
+        "for caminho in caminhos_baixados:\n",
+        "    nome = caminho.split(\"/\")[-1]  # ex: RDRJ2303.parquet\n",
+        "    match = re.search(r\"RDRJ(\\d{2})(\\d{2})\\.parquet\", nome)\n",
+        "    if match:\n",
+        "        ano = \"20\" + match.group(1)\n",
+        "        mes = match.group(2)\n",
+        "        meses_por_ano.setdefault(ano, []).append(mes)\n",
+        "\n",
+        "for ano, meses in sorted(meses_por_ano.items()):\n",
+        "    faltando = [f\"{m:02d}\" for m in range(1, 13) if f\"{m:02d}\" not in meses]\n",
+        "    print(f\"{ano}: {sorted(meses)} — faltando: {faltando}\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "wcOFBxUkveSg"
+      },
+      "source": [
+        "## Nota sobre completude dos dados\n",
+        "\n",
+        "3 de 36 meses do período (2023-2025) não estão disponíveis na fonte SIH/DataSUS\n",
+        "para o Rio de Janeiro, grupo RD (AIH Reduzida): junho/2023, agosto/2023 e\n",
+        "julho/2024. Isso equivale a 33/36 meses disponíveis (91,7% de cobertura).\n",
+        "\n",
+        "Verificado em 27/09/2026 via `pysus.list_files()`, consultando o catálogo\n",
+        "oficial do DATASUS sem baixar nenhum arquivo: os 3 meses simplesmente não\n",
+        "aparecem listados. Não é falha de download é lacuna real na fonte, que pode\n",
+        "mudar se o DATASUS publicar esses dados retroativamente no futuro.\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## Data completeness note\n",
+        "\n",
+        "3 of 36 months in the period (2023-2025) are not available in the SIH/DataSUS\n",
+        "source for Rio de Janeiro, group RD (Reduced AIH): June/2023, August/2023 and\n",
+        "July/2024. This means 33/36 months are available (91.7% coverage).\n",
+        "\n",
+        "Verified on 2026-09-27 via `pysus.list_files()`, querying the official DATASUS\n",
+        "catalog without downloading any file: the 3 months simply do not appear\n",
+        "listed. This is not a download failur it is a real gap in the source,\n",
+        "which may change if DATASUS publishes this data retroactively in the future."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "bcoq50gyJxY7"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "from pathlib import Path\n",
+        "\n",
+        "# EN: Cache folder set in Block 1\n",
+        "# PT: Pasta de cache definida no Bloco 1\n",
+        "base = Path(os.environ[\"PYSUS_CACHEPATH\"])\n",
+        "\n",
+        "# EN: List every parquet path found\n",
+        "# PT: Lista todos os caminhos parquet encontrados\n",
+        "for p in sorted(base.rglob(\"*.parquet\")):\n",
+        "    print(p)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "doLY5fmUQcyd"
+      },
+      "outputs": [],
+      "source": [
+        "import duckdb\n",
+        "\n",
+        "con = duckdb.connect()\n",
+        "\n",
+        "# EN: List column names and types of one file (Jan/2023)\n",
+        "# PT: Lista nomes e tipos das colunas de um arquivo (jan/2023)\n",
+        "arquivo = \"/content/drive/MyDrive/sih_datasus/raw_dbc/downloads/ducklake/sih/RDRJ2301.parquet\"\n",
+        "\n",
+        "con.sql(f\"DESCRIBE SELECT * FROM read_parquet('{arquivo}')\").show(max_rows=200)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "U7bUbn9IR14E"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Show only candidate columns, matched by keyword\n",
+        "# PT: Mostra só as colunas candidatas, por palavra-chave\n",
+        "df = con.sql(f\"DESCRIBE SELECT * FROM read_parquet('{arquivo}')\").df()\n",
+        "print(len(df), \"colunas no total / columns in total\")\n",
+        "\n",
+        "palavras = [\"DT_\", \"VAL_\", \"UTI\", \"CNES\", \"DIAG\", \"PROC\", \"MORTE\", \"MUNIC\", \"DIAS\", \"QT_\", \"CID\"]\n",
+        "mask = df[\"column_name\"].str.contains(\"|\".join(palavras))\n",
+        "print(df.loc[mask, \"column_name\"].tolist())"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ZAhQkbRMkx3Y"
+      },
+      "outputs": [],
+      "source": [
+        "\n",
+        "# Lista colunas de valor e de ID / List value and ID columns\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT column_name\n",
+        "    FROM (DESCRIBE SELECT * FROM '{PASTA_PARQUET}/RDRJ2301.parquet')\n",
+        "    WHERE column_name LIKE 'VAL_%'\n",
+        "       OR column_name IN ('N_AIH','MORTE','ANO_CMPT','MES_CMPT')\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "EHhOdzzxmS_j"
+      },
+      "outputs": [],
+      "source": [
+        "# Testa se VAL_TOT = soma dos componentes / Test if VAL_TOT = sum of components\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT\n",
+        "        COUNT(*) AS total_linhas,\n",
+        "        SUM(CASE WHEN ABS(soma_a - val_tot) < 0.01 THEN 1 ELSE 0 END) AS bate_a,\n",
+        "        SUM(CASE WHEN ABS(soma_b - val_tot) < 0.01 THEN 1 ELSE 0 END) AS bate_b\n",
+        "    FROM (\n",
+        "        SELECT\n",
+        "            TRY_CAST(VAL_TOT AS DOUBLE) AS val_tot,\n",
+        "            -- Hipótese A / Hypothesis A\n",
+        "            COALESCE(TRY_CAST(VAL_SH AS DOUBLE),0)\n",
+        "              + COALESCE(TRY_CAST(VAL_SP AS DOUBLE),0) AS soma_a,\n",
+        "            -- Hipótese B: complete você / Hypothesis B: you complete\n",
+        "            COALESCE(TRY_CAST(VAL_SH AS DOUBLE),0)\n",
+        "              + COALESCE(TRY_CAST(VAL_SP AS DOUBLE),0)\n",
+        "              + COALESCE(TRY_CAST(VAL_SADT AS DOUBLE),0)\n",
+        "              -- + ... demais componentes / other components\n",
+        "              AS soma_b\n",
+        "        FROM '{PASTA_PARQUET}/RDRJ2301.parquet'\n",
+        "    )\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "rBMJcr16r-Jf"
+      },
+      "outputs": [],
+      "source": [
+        "# Soma de cada componente em todos os meses / Sum of each component across all months\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT\n",
+        "        SUM(TRY_CAST(VAL_TOT  AS DOUBLE)) AS tot,\n",
+        "        SUM(TRY_CAST(VAL_SH   AS DOUBLE)) AS sh,\n",
+        "        SUM(TRY_CAST(VAL_SP   AS DOUBLE)) AS sp,\n",
+        "        SUM(TRY_CAST(VAL_SADT AS DOUBLE)) AS sadt,\n",
+        "        SUM(TRY_CAST(VAL_ORTP AS DOUBLE)) AS ortp,\n",
+        "        SUM(TRY_CAST(VAL_UTI  AS DOUBLE)) AS uti\n",
+        "    FROM '{PASTA_PARQUET}/RDRJ*.parquet'\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "HzOKLlKQx2t8"
+      },
+      "outputs": [],
+      "source": [
+        "# Diferença TOT - (SH+SP) por mês, em % / Gap TOT - (SH+SP) per month, in %\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT\n",
+        "        ANO_CMPT, MES_CMPT,\n",
+        "        COUNT(*) AS linhas,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_TOT AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SH AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SP AS DOUBLE)), 2) AS diferenca,\n",
+        "        ROUND(100 * (SUM(TRY_CAST(VAL_TOT AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SH AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SP AS DOUBLE)))\n",
+        "            / SUM(TRY_CAST(VAL_TOT AS DOUBLE)), 2) AS pct_diferenca\n",
+        "    FROM read_parquet('{PASTA_PARQUET}/RDRJ*.parquet', union_by_name=true)\n",
+        "    GROUP BY ANO_CMPT, MES_CMPT\n",
+        "    ORDER BY ANO_CMPT, MES_CMPT\n",
+        "\"\"\").show(max_rows=40)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "d08lR9iEzL13"
+      },
+      "outputs": [],
+      "source": [
+        "# Candidatas a explicar a diferença / Candidate columns to explain the gap\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT\n",
+        "        ANO_CMPT, MES_CMPT,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_TOT AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SH AS DOUBLE))\n",
+        "            - SUM(TRY_CAST(VAL_SP AS DOUBLE)), 0) AS diferenca,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_UCI    AS DOUBLE)), 0) AS uci,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_RN     AS DOUBLE)), 0) AS rn,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_ACOMP  AS DOUBLE)), 0) AS acomp,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_SANGUE AS DOUBLE)), 0) AS sangue,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_TRANSP AS DOUBLE)), 0) AS transp\n",
+        "    FROM read_parquet('{PASTA_PARQUET}/RDRJ*.parquet', union_by_name=true)\n",
+        "    GROUP BY ANO_CMPT, MES_CMPT\n",
+        "    ORDER BY ANO_CMPT, MES_CMPT\n",
+        "\"\"\").show(max_rows=40)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "QbxZRpFd6pEl"
+      },
+      "outputs": [],
+      "source": [
+        "# Candidatas restantes, em milhões / Remaining candidates, in R$ millions\n",
+        "duckdb.sql(f\"\"\"\n",
+        "    SELECT\n",
+        "        ANO_CMPT AS ano, MES_CMPT AS mes,\n",
+        "        ROUND((SUM(TRY_CAST(VAL_TOT AS DOUBLE))\n",
+        "             - SUM(TRY_CAST(VAL_SH AS DOUBLE))\n",
+        "             - SUM(TRY_CAST(VAL_SP AS DOUBLE))) / 1e6, 2) AS dif,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_SH_GES AS DOUBLE)) / 1e6, 2) AS sh_ges,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_SP_GES AS DOUBLE)) / 1e6, 2) AS sp_ges,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_SH_FED AS DOUBLE)) / 1e6, 2) AS sh_fed,\n",
+        "        ROUND(SUM(TRY_CAST(VAL_SP_FED AS DOUBLE)) / 1e6, 2) AS sp_fed\n",
+        "    FROM read_parquet('{PASTA_PARQUET}/RDRJ*.parquet', union_by_name=true)\n",
+        "    GROUP BY ANO_CMPT, MES_CMPT\n",
+        "    ORDER BY ANO_CMPT, MES_CMPT\n",
+        "\"\"\").show(max_rows=40)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "hxezW5PHtuW5"
+      },
+      "outputs": [],
+      "source": [
+        "# Residual check: dif - (GES + FED), in R$ millions\n",
+        "# Checagem do resíduo: dif - (GES + FED), em milhões de R$\n",
+        "duckdb.sql(f\"\"\"\n",
+        "WITH mensal AS (\n",
+        "    SELECT\n",
+        "        ANO_CMPT AS ano, MES_CMPT AS mes,\n",
+        "        SUM(TRY_CAST(VAL_TOT AS DOUBLE))\n",
+        "          - SUM(TRY_CAST(VAL_SH AS DOUBLE))\n",
+        "          - SUM(TRY_CAST(VAL_SP AS DOUBLE))        AS dif,\n",
+        "        SUM(TRY_CAST(VAL_SH_GES AS DOUBLE))\n",
+        "          + SUM(TRY_CAST(VAL_SP_GES AS DOUBLE))    AS ges,\n",
+        "        SUM(TRY_CAST(VAL_SH_FED AS DOUBLE))\n",
+        "          + SUM(TRY_CAST(VAL_SP_FED AS DOUBLE))    AS fed\n",
+        "    FROM read_parquet('{PASTA_PARQUET}/RDRJ*.parquet', union_by_name=true)\n",
+        "    GROUP BY ANO_CMPT, MES_CMPT\n",
+        ")\n",
+        "SELECT\n",
+        "    ano, mes,\n",
+        "    ROUND(dif / 1e6, 2)                          AS dif,\n",
+        "    ROUND((ges + fed) / 1e6, 2)                  AS ges_mais_fed,\n",
+        "    ROUND((dif - ges - fed) / 1e6, 2)            AS residuo,\n",
+        "    ROUND(100 * (dif - ges - fed) / NULLIF(dif, 0), 1) AS residuo_pct\n",
+        "FROM mensal\n",
+        "ORDER BY ano, mes\n",
+        "\"\"\").show(max_rows=40)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "MzwQ8bGXv47V"
+      },
+      "source": [
+        "# Data Dictionary / Dicionário de Dados\n",
+        "\n",
+        "## Derived columns / Colunas derivadas\n",
+        "\n",
+        "### dif\n",
+        "\n",
+        "#### PT\n",
+        "\n",
+        "1. `dif = VAL_TOT - VAL_SH - VAL_SP`\n",
+        "2. Parte do valor total que não está em SH nem SP. Equivale à soma dos complementos federal e do gestor (`VAL_SH_FED + VAL_SP_FED + VAL_SH_GES + VAL_SP_GES`).\n",
+        "3. Validada com dados do RJ, de 2023 a 2025: resíduo zero em todos os 33 meses. Faltam jun/2023, ago/2023 e jul/2024, que não existem na fonte.\n",
+        "\n",
+        "#### EN\n",
+        "\n",
+        "1. `dif = VAL_TOT - VAL_SH - VAL_SP`\n",
+        "2. The part of the total value that is not in SH or SP. It equals the sum of the federal and local-manager supplements (`VAL_SH_FED + VAL_SP_FED + VAL_SH_GES + VAL_SP_GES`).\n",
+        "3. Validated with Rio de Janeiro data, 2023 to 2025: zero residual in all 33 months. Jun/2023, Aug/2023 and Jul/2024 are missing because they do not exist in the source."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# EN: Create rd_raw: all monthly parquet files stacked in one view\n",
+        "# PT: Cria a rd_raw: todos os parquets mensais empilhados em uma view\n",
+        "\n",
+        "duckdb.sql(f\"\"\"\n",
+        "CREATE OR REPLACE VIEW rd_raw AS\n",
+        "SELECT *\n",
+        "FROM read_parquet('{PASTA_PARQUET}/RDRJ*.parquet', union_by_name=true)\n",
+        "\"\"\")\n",
+        "\n",
+        "# EN: Validation: row count must match the sum of monthly files\n",
+        "# PT: Validação: a contagem deve bater com a soma dos arquivos mensais\n",
+        "duckdb.sql(\"SELECT COUNT(*) AS n_linhas FROM rd_raw\").show()"
+      ],
+      "metadata": {
+        "id": "SQ1MgKWKnWCY"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Lwwuphdnvz0A"
+      },
+      "outputs": [],
+      "source": [
+        "# Lag between discharge and billing month / Defasagem entre alta e competência\n",
+        "query = \"\"\"\n",
+        "WITH base AS (\n",
+        "    SELECT\n",
+        "        try_strptime(DT_SAIDA, '%Y%m%d')::DATE AS dt_saida,\n",
+        "        make_date(CAST(ANO_CMPT AS INTEGER), CAST(MES_CMPT AS INTEGER), 1) AS competencia\n",
+        "    FROM rd_raw\n",
+        ")\n",
+        "SELECT\n",
+        "    date_diff('month', date_trunc('month', dt_saida), competencia) AS lag_meses,\n",
+        "    COUNT(*) AS n_aih,\n",
+        "    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct\n",
+        "FROM base\n",
+        "GROUP BY lag_meses\n",
+        "ORDER BY lag_meses\n",
+        "\"\"\"\n",
+        "duckdb.sql(query).show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Wnc1lJ0TGDZb"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Run the window check through DuckDB (SQL goes inside a Python string)\n",
+        "# PT: Roda a checagem do recorte via DuckDB (o SQL vai dentro de uma string Python)\n",
+        "query = \"\"\"\n",
+        "SELECT\n",
+        "    CASE\n",
+        "        WHEN dt_saida_date IS NULL THEN 'invalid_date'\n",
+        "        WHEN dt_saida_date BETWEEN DATE '2023-01-01' AND DATE '2025-09-30' THEN 'inside'\n",
+        "        ELSE 'outside'\n",
+        "    END AS window_status,\n",
+        "    COUNT(*) AS n_aih,\n",
+        "    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct\n",
+        "FROM (\n",
+        "    -- EN: TRY_STRPTIME returns NULL instead of failing on a bad date\n",
+        "    -- PT: TRY_STRPTIME devolve NULL em vez de dar erro numa data inválida\n",
+        "    SELECT TRY_STRPTIME(DT_SAIDA, '%Y%m%d')::DATE AS dt_saida_date\n",
+        "    FROM rd_raw\n",
+        ")\n",
+        "GROUP BY window_status\n",
+        "ORDER BY n_aih DESC\n",
+        "\"\"\"\n",
+        "\n",
+        "duckdb.sql(query).show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "jvUPHC6DGuou"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Break down the 'outside' rows by discharge month\n",
+        "# PT: Abre as linhas 'outside' por mês de saída\n",
+        "query = \"\"\"\n",
+        "SELECT\n",
+        "    STRFTIME(dt_saida_date, '%Y-%m') AS discharge_month,\n",
+        "    COUNT(*) AS n_aih\n",
+        "FROM (\n",
+        "    SELECT TRY_STRPTIME(DT_SAIDA, '%Y%m%d')::DATE AS dt_saida_date\n",
+        "    FROM rd_raw\n",
+        ")\n",
+        "WHERE dt_saida_date NOT BETWEEN DATE '2023-01-01' AND DATE '2025-09-30'\n",
+        "GROUP BY discharge_month\n",
+        "ORDER BY discharge_month\n",
+        "\"\"\"\n",
+        "\n",
+        "duckdb.sql(query).show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "8dZC5CdSJveE"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Profile VAL_TOT before casting (empty, invalid, comma decimal)\n",
+        "# PT: Perfila o VAL_TOT antes de converter (vazio, inválido, vírgula decimal)\n",
+        "query = \"\"\"\n",
+        "SELECT\n",
+        "    CASE\n",
+        "        WHEN VAL_TOT IS NULL OR TRIM(VAL_TOT) = '' THEN 'empty_or_null'\n",
+        "        WHEN VAL_TOT LIKE '%,%'                    THEN 'has_comma'\n",
+        "        WHEN TRY_CAST(VAL_TOT AS DOUBLE) IS NULL   THEN 'not_numeric'\n",
+        "        ELSE 'numeric_ok'\n",
+        "    END AS val_tot_status,\n",
+        "    COUNT(*) AS n_aih,\n",
+        "    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct\n",
+        "FROM rd_raw\n",
+        "GROUP BY val_tot_status\n",
+        "ORDER BY n_aih DESC\n",
+        "\"\"\"\n",
+        "\n",
+        "duckdb.sql(query).show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "-75fJlbkK4-q"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Check zeros, negatives and outliers in VAL_TOT (inside the analysis window)\n",
+        "# PT: Checa zeros, negativos e outliers no VAL_TOT (dentro do recorte de análise)\n",
+        "query = \"\"\"\n",
+        "SELECT\n",
+        "    COUNT(*)                                          AS n_aih,\n",
+        "    SUM(CASE WHEN val < 0 THEN 1 ELSE 0 END)          AS n_negative,\n",
+        "    SUM(CASE WHEN val = 0 THEN 1 ELSE 0 END)          AS n_zero,\n",
+        "    MIN(val)                                          AS min_val,\n",
+        "    ROUND(QUANTILE_CONT(val, 0.50), 2)                AS median_val,\n",
+        "    ROUND(QUANTILE_CONT(val, 0.99), 2)                AS p99_val,\n",
+        "    MAX(val)                                          AS max_val\n",
+        "FROM (\n",
+        "    SELECT\n",
+        "        CAST(VAL_TOT AS DOUBLE) AS val,\n",
+        "        TRY_STRPTIME(DT_SAIDA, '%Y%m%d')::DATE AS dt_saida_date\n",
+        "    FROM rd_raw\n",
+        ")\n",
+        "WHERE dt_saida_date BETWEEN DATE '2023-01-01' AND DATE '2025-09-30'\n",
+        "\"\"\"\n",
+        "\n",
+        "duckdb.sql(query).show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "vIky6ENAPs-h"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Duplicate check on N_AIH inside the analysis window (counts only, no IDs displayed)\n",
+        "# PT: Checagem de duplicados em N_AIH dentro do recorte (só contagens, sem mostrar os números)\n",
+        "janela = \"\"\"\n",
+        "    FROM rd_raw\n",
+        "    WHERE TRY_STRPTIME(DT_SAIDA, '%Y%m%d')::DATE\n",
+        "          BETWEEN DATE '2023-01-01' AND DATE '2025-09-30'\n",
+        "\"\"\"\n",
+        "\n",
+        "# 1) Total rows vs distinct AIH numbers / Linhas totais vs números de AIH distintos\n",
+        "duckdb.sql(f\"\"\"\n",
+        "SELECT\n",
+        "    COUNT(*)                                   AS n_linhas,\n",
+        "    COUNT(DISTINCT N_AIH)                      AS n_aih_distintos,\n",
+        "    SUM(CASE WHEN N_AIH IS NULL THEN 1 ELSE 0 END) AS n_nulos,\n",
+        "    COUNT(*) - COUNT(DISTINCT N_AIH)           AS n_excedente\n",
+        "{janela}\n",
+        "\"\"\").show()\n",
+        "\n",
+        "# 2) How many AIH numbers repeat, and how many times / Quantos repetem e quantas vezes\n",
+        "duckdb.sql(f\"\"\"\n",
+        "SELECT n_repeticoes, COUNT(*) AS n_aih\n",
+        "FROM (\n",
+        "    SELECT N_AIH, COUNT(*) AS n_repeticoes\n",
+        "    {janela}\n",
+        "    GROUP BY N_AIH\n",
+        ")\n",
+        "GROUP BY n_repeticoes\n",
+        "ORDER BY n_repeticoes\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "oQ4hRIYWRSte"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Classify repeated N_AIH by competence month and discharge date (counts only)\n",
+        "# PT: Classifica os N_AIH repetidos por competência e data de saída (só contagens)\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT\n",
+        "    CASE WHEN n_comp = 1 THEN 'mesma_competencia'\n",
+        "         ELSE 'competencias_diferentes' END AS competencia,\n",
+        "    CASE WHEN n_saidas = 1 THEN 'mesma_saida'\n",
+        "         ELSE 'saidas_diferentes' END       AS data_saida,\n",
+        "    COUNT(*)      AS n_aih,\n",
+        "    SUM(n_linhas) AS n_linhas\n",
+        "FROM (\n",
+        "    SELECT\n",
+        "        N_AIH,\n",
+        "        COUNT(*)                            AS n_linhas,\n",
+        "        COUNT(DISTINCT ANO_CMPT || MES_CMPT) AS n_comp,\n",
+        "        COUNT(DISTINCT DT_SAIDA)            AS n_saidas\n",
+        "    FROM rd_raw\n",
+        "    WHERE TRY_STRPTIME(DT_SAIDA, '%Y%m%d')::DATE\n",
+        "          BETWEEN DATE '2023-01-01' AND DATE '2025-09-30'\n",
+        "    GROUP BY N_AIH\n",
+        "    HAVING COUNT(*) > 1\n",
+        ")\n",
+        "GROUP BY competencia, data_saida\n",
+        "ORDER BY n_linhas DESC\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ZAN0zR6Qk-QK"
+      },
+      "outputs": [],
+      "source": [
+        "\n",
+        "duckdb.sql(\"\"\"\n",
+        "-- Rebuild rd_clean with eh_internacao / Recria a rd_clean com eh_internacao\n",
+        "CREATE OR REPLACE VIEW rd_clean AS\n",
+        "WITH base AS (\n",
+        "    SELECT\n",
+        "        *,\n",
+        "        strptime(DT_SAIDA, '%Y%m%d')::DATE AS dt_saida_date,\n",
+        "        CAST(VAL_TOT AS DOUBLE)            AS val_tot_num\n",
+        "    FROM rd_raw\n",
+        ")\n",
+        "SELECT\n",
+        "    * EXCLUDE (CEP, NASC, N_AIH, CGC_HOSP, DT_SAIDA, VAL_TOT),\n",
+        "    dt_saida_date AS dt_saida,\n",
+        "    val_tot_num   AS val_tot,\n",
+        "    (val_tot_num = 0) AS flag_valor_zero,\n",
+        "    (COUNT(*) OVER (PARTITION BY N_AIH) > 1) AS flag_aih_repetida,\n",
+        "    (ROW_NUMBER() OVER (\n",
+        "        PARTITION BY N_AIH\n",
+        "        ORDER BY dt_saida_date DESC, ANO_CMPT DESC, MES_CMPT DESC\n",
+        "    ) = 1) AS eh_internacao\n",
+        "FROM base\n",
+        "WHERE dt_saida_date BETWEEN DATE '2023-01-01' AND DATE '2025-09-30'\n",
+        "\"\"\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "hj7O29bdlBo7"
+      },
+      "outputs": [],
+      "source": [
+        "duckdb.sql(\"\"\"\n",
+        "SELECT\n",
+        "    COUNT(*)                    AS linhas,\n",
+        "    SUM(flag_valor_zero::INT)   AS zeros,\n",
+        "    SUM(flag_aih_repetida::INT) AS repetidas,\n",
+        "    SUM(eh_internacao::INT)     AS internacoes\n",
+        "FROM rd_clean\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "L50E3Uf1l3UP"
+      },
+      "outputs": [],
+      "source": [
+        "duckdb.sql(\"\"\"\n",
+        "SELECT\n",
+        "    SUM(CAST(MORTE AS INT))                              AS obitos_todas_as_linhas,\n",
+        "    SUM(CAST(MORTE AS INT)) FILTER (WHERE eh_internacao) AS obitos_ultima_linha\n",
+        "FROM rd_clean\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "vwjnxCp6c5XA"
+      },
+      "outputs": [],
+      "source": [
+        "# EN: Compare flagged vs non-flagged AIHs (counts and averages only)\n",
+        "# PT: Compara AIHs marcadas e não marcadas (só contagens e médias)\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT\n",
+        "    flag_aih_repetida,\n",
+        "    COUNT(*)                                  AS linhas,\n",
+        "    ROUND(AVG(CAST(DIAS_PERM AS DOUBLE)), 1) AS media_dias,\n",
+        "    ROUND(MEDIAN(CAST(DIAS_PERM AS DOUBLE)), 1) AS mediana_dias,\n",
+        "    ROUND(AVG(val_tot), 2)                    AS media_val\n",
+        "FROM rd_clean\n",
+        "GROUP BY flag_aih_repetida\n",
+        "ORDER BY flag_aih_repetida\n",
+        "\"\"\").show()\n",
+        "\n",
+        "# EN: Does the AIH type (IDENT) differ between the two groups?\n",
+        "# PT: O tipo de AIH (IDENT) muda entre os dois grupos?\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT flag_aih_repetida, IDENT, COUNT(*) AS linhas\n",
+        "FROM rd_clean\n",
+        "GROUP BY flag_aih_repetida, IDENT\n",
+        "ORDER BY flag_aih_repetida, linhas DESC\n",
+        "\"\"\").show()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "7tltGvFswjij"
+      },
+      "source": [
+        "### eh_internacao\n",
+        "\n",
+        "#### PT\n",
+        "- **Fórmula:** `ROW_NUMBER() OVER (PARTITION BY N_AIH ORDER BY dt_saida DESC, ANO_CMPT DESC, MES_CMPT DESC) = 1`\n",
+        "- **Significado:** vale 1 na última linha de cada N_AIH (saída mais recente) e 0 nas demais. Uma internação pode ter várias linhas; esta coluna marca a que conta como a internação. Use-a para contar internações e óbitos. Para somar valores (`val_tot`), use todas as linhas.\n",
+        "- **Validação:** a soma de `eh_internacao` (2.248.946) é igual ao número de N_AIH distintos no recorte. Óbitos: 144.682 na linha marcada contra 144.684 em todas as linhas (diferença de 2).\n",
+        "\n",
+        "#### EN\n",
+        "- **Formula:** `ROW_NUMBER() OVER (PARTITION BY N_AIH ORDER BY dt_saida DESC, ANO_CMPT DESC, MES_CMPT DESC) = 1`\n",
+        "- **Meaning:** 1 on the last row of each N_AIH (latest discharge date), 0 on the others. One hospitalization can have several rows; this column flags the one that counts as the hospitalization. Use it to count hospitalizations and deaths. To sum amounts (`val_tot`), use all rows.\n",
+        "- **Validation:** the sum of `eh_internacao` (2,248,946) equals the number of distinct N_AIH in the study window. Deaths: 144,682 on the flagged row vs 144,684 across all rows (difference of 2)."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from ftplib import FTP\n",
+        "\n",
+        "# Connect to the DATASUS public FTP / Conecta ao FTP público do DATASUS\n",
+        "ftp = FTP(\"ftp.datasus.gov.br\")\n",
+        "ftp.login()  # anonymous login, no credentials / login anônimo, sem senha\n",
+        "\n",
+        "# Go to the folder and list file names / Entra na pasta e lista os nomes\n",
+        "ftp.cwd(\"/dissemin/publicos/SIM/CID10/TABELAS\")\n",
+        "print(ftp.nlst())\n",
+        "\n",
+        "ftp.quit()"
+      ],
+      "metadata": {
+        "id": "dP9AFJIjGdk1"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "!pip install dbfread"
+      ],
+      "metadata": {
+        "id": "w4lIaK1eIDuN"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import os\n",
+        "\n",
+        "# Reference folder on Drive / Pasta de referência no Drive\n",
+        "PASTA_REF = \"/content/drive/MyDrive/sih_datasus/ref\"\n",
+        "os.makedirs(PASTA_REF, exist_ok=True)\n",
+        "\n",
+        "# Download CID10.DBF from the public FTP / Baixa o CID10.DBF do FTP público\n",
+        "ftp = FTP(\"ftp.datasus.gov.br\")\n",
+        "ftp.login()  # anonymous / anônimo\n",
+        "ftp.cwd(\"/dissemin/publicos/SIM/CID10/TABELAS\")\n",
+        "with open(f\"{PASTA_REF}/CID10.DBF\", \"wb\") as f:\n",
+        "    ftp.retrbinary(\"RETR CID10.DBF\", f.write)\n",
+        "ftp.quit()\n",
+        "\n",
+        "# Read the DBF (needs: pip install dbfread) / Lê o DBF (precisa: pip install dbfread)\n",
+        "from dbfread import DBF\n",
+        "import pandas as pd\n",
+        "\n",
+        "tabela = DBF(f\"{PASTA_REF}/CID10.DBF\", encoding=\"latin-1\")\n",
+        "cid = pd.DataFrame(iter(tabela))\n",
+        "\n",
+        "print(cid.shape)\n",
+        "print(cid.dtypes)\n",
+        "print(cid.head(10))"
+      ],
+      "metadata": {
+        "id": "Roiucc9EIHKl"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Remove spaces and check code lengths / Remove espaços e confere o tamanho dos códigos\n",
+        "cid[\"CID10\"] = cid[\"CID10\"].str.strip()\n",
+        "print(cid[\"CID10\"].str.len().value_counts())\n",
+        "\n",
+        "# Duplicated codes? / Há códigos duplicados?\n",
+        "print(cid[\"CID10\"].duplicated().sum())\n",
+        "\n",
+        "# Full view of 2 rows / Visão completa de 2 linhas\n",
+        "print(cid.iloc[0].to_dict())\n",
+        "print(cid.iloc[1].to_dict())"
+      ],
+      "metadata": {
+        "id": "mOxwuhLNoMd4"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Download CID10.DBF from DATASUS FTP / Baixar CID10.DBF do FTP do DATASUS\n",
+        "import ftplib, os\n",
+        "\n",
+        "PASTA_CID = \"/content/drive/MyDrive/sih_datasus/cid10\"\n",
+        "os.makedirs(PASTA_CID, exist_ok=True)\n",
+        "ARQ_CID = f\"{PASTA_CID}/CID10.DBF\"\n",
+        "\n",
+        "if not os.path.exists(ARQ_CID):  # checkpoint: skip if already downloaded / pula se já baixou\n",
+        "    ftp = ftplib.FTP(\"ftp.datasus.gov.br\")\n",
+        "    ftp.login()  # anonymous login / login anônimo\n",
+        "    ftp.cwd(\"/dissemin/publicos/SIM/CID10/TABELAS\")\n",
+        "    with open(ARQ_CID, \"wb\") as f:\n",
+        "        ftp.retrbinary(\"RETR CID10.DBF\", f.write)\n",
+        "    ftp.quit()\n",
+        "\n",
+        "print(os.path.getsize(ARQ_CID), \"bytes\")"
+      ],
+      "metadata": {
+        "id": "I8USS5u9X1Ol"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Read DBF and inspect / Ler o DBF e inspecionar\n",
+        "!pip install dbfread -q\n",
+        "\n",
+        "import pandas as pd\n",
+        "from dbfread import DBF\n",
+        "\n",
+        "cid10_raw = pd.DataFrame(iter(DBF(ARQ_CID, encoding=\"latin-1\")))\n",
+        "print(cid10_raw.shape)\n",
+        "print(cid10_raw.columns.tolist())\n",
+        "print(cid10_raw.head(10))"
+      ],
+      "metadata": {
+        "id": "3K0QP4O8X5dy"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Check flags and code length / Conferir flags e tamanho do código\n",
+        "print(cid10_raw[\"OPC\"].value_counts(dropna=False).head())\n",
+        "print(cid10_raw[\"CAT\"].value_counts(dropna=False))\n",
+        "print(cid10_raw[\"SUBCAT\"].value_counts(dropna=False))\n",
+        "print(cid10_raw[\"CID10\"].str.strip().str.len().value_counts())"
+      ],
+      "metadata": {
+        "id": "-gfpq_gdYmqp"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Build 3-char category table / Montar tabela de categorias de 3 caracteres\n",
+        "cid10_cat = cid10_raw[cid10_raw[\"CID10\"].str.strip().str.len() == 3].copy()\n",
+        "cid10_cat[\"cat3\"] = cid10_cat[\"CID10\"].str.strip()\n",
+        "# Remove the code prefix from the description / Remover o código do início da descrição\n",
+        "cid10_cat[\"descricao\"] = (\n",
+        "    cid10_cat[\"DESCR\"].str.strip()\n",
+        "    .str.replace(r\"^[A-Z]\\d{2}\\s+\", \"\", regex=True)\n",
+        ")\n",
+        "cid10_cat = cid10_cat[[\"cat3\", \"descricao\"]]\n",
+        "\n",
+        "duckdb.register(\"cid10_cat\", cid10_cat)  # now the name exists in DuckDB / agora o nome existe no DuckDB\n",
+        "\n",
+        "print(cid10_cat.shape)\n",
+        "print(\"cat3 distintos:\", cid10_cat[\"cat3\"].nunique())\n",
+        "print(\"nulos descricao:\", cid10_cat[\"descricao\"].isna().sum())\n",
+        "print(cid10_cat.head())"
+      ],
+      "metadata": {
+        "id": "6B9cSU7nYq0q"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Coverage of the JOIN, counted in hospitalizations\n",
+        "# Cobertura do JOIN, contada em internações\n",
+        "duckdb.sql(\"\"\"\n",
+        "WITH base AS (\n",
+        "  SELECT LEFT(TRIM(diag_princ), 3) AS cat3\n",
+        "  FROM rd_clean\n",
+        "  WHERE eh_internacao = 1\n",
+        ")\n",
+        "SELECT\n",
+        "  CASE WHEN c.cat3 IS NULL THEN 'sem_descricao'\n",
+        "       ELSE 'com_descricao' END AS cobertura,\n",
+        "  COUNT(*) AS internacoes,\n",
+        "  ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct\n",
+        "FROM base b\n",
+        "LEFT JOIN cid10_cat c ON b.cat3 = c.cat3\n",
+        "GROUP BY 1\n",
+        "\"\"\").show()"
+      ],
+      "metadata": {
+        "id": "mG4FPZZMaVEb"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Which codes have no description? / Quais códigos ficaram sem descrição?\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT r.diag_princ, COUNT(*) AS internacoes\n",
+        "FROM rd_clean r\n",
+        "LEFT JOIN cid10_cat c ON LEFT(TRIM(r.diag_princ), 3) = c.cat3\n",
+        "WHERE r.eh_internacao = 1\n",
+        "  AND c.cat3 IS NULL\n",
+        "GROUP BY 1\n",
+        "ORDER BY 2 DESC\n",
+        "\"\"\").show()"
+      ],
+      "metadata": {
+        "id": "_V79QWWdbaqr"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "\n",
+        "# EN: List every DataFrame in the session (name, shape, first columns).\n",
+        "# PT: Lista todos os DataFrames da sessão (nome, formato, primeiras colunas).\n",
+        "for nome, obj in list(globals().items()):\n",
+        "    if isinstance(obj, pd.DataFrame) and not nome.startswith(\"_\"):\n",
+        "        print(nome, obj.shape, list(obj.columns)[:5])"
+      ],
+      "metadata": {
+        "id": "b9vKvPSjfshS"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "\n",
+        "# EN: Confirm the columns before changing anything.\n",
+        "# PT: Confirma as colunas antes de mudar qualquer coisa.\n",
+        "print(cid10_cat.shape, list(cid10_cat.columns))  # esperado: (2046, 2) ['cat3', 'descricao']\n",
+        "\n",
+        "# EN: Mark the origin of every row.\n",
+        "# PT: Marca a origem de cada linha.\n",
+        "cid10_cat[\"fonte\"] = \"DATASUS CID10.DBF\"\n",
+        "\n",
+        "# EN: Extra categories found in the SIH data but missing from the old DATASUS table.\n",
+        "#     Source: WHO ICD-10 emergency-use updates (COVID-19). Portuguese text is my own translation.\n",
+        "# PT: Categorias extras achadas nos dados do SIH, ausentes da tabela antiga do DATASUS.\n",
+        "#     Fonte: atualizações de uso emergencial da CID-10 da OMS (COVID-19). O texto em português é tradução minha.\n",
+        "extras = pd.DataFrame({\n",
+        "    \"cat3\": [\"U09\", \"U10\"],\n",
+        "    \"descricao\": [\n",
+        "        \"Condição pós-COVID-19\",\n",
+        "        \"Síndrome inflamatória multissistêmica associada à COVID-19\",\n",
+        "    ],\n",
+        "    \"fonte\": [\"complemento manual (OMS)\"] * 2,\n",
+        "})\n",
+        "\n",
+        "# EN: Safety check: these codes must not already exist.\n",
+        "# PT: Checagem de segurança: esses códigos não podem já existir.\n",
+        "assert not cid10_cat[\"cat3\"].isin(extras[\"cat3\"]).any()\n",
+        "\n",
+        "cid10_cat = pd.concat([cid10_cat, extras], ignore_index=True)\n",
+        "\n",
+        "# EN: Re-register in DuckDB so queries see the new version.\n",
+        "# PT: Registra de novo no DuckDB para as consultas verem a versão nova.\n",
+        "duckdb.register(\"cid10_cat\", cid10_cat)\n",
+        "print(cid10_cat.shape)  # esperado: (2048, 3)"
+      ],
+      "metadata": {
+        "id": "HxrUBwDRgDeM"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# 1) Unique key / Chave única (esperado: 2048, 2048, 0)\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT COUNT(*) AS linhas,\n",
+        "       COUNT(DISTINCT cat3) AS cat3_distintos,\n",
+        "       COUNT(*) FILTER (WHERE cat3 IS NULL) AS nulos\n",
+        "FROM cid10_cat\n",
+        "\"\"\").show()\n",
+        "\n",
+        "# 2) Coverage / Cobertura (esperado: 2248946, 0)\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT COUNT(*) AS internacoes,\n",
+        "       COUNT(*) FILTER (WHERE c.cat3 IS NULL) AS sem_descricao\n",
+        "FROM rd_clean r\n",
+        "LEFT JOIN cid10_cat c ON SUBSTR(r.diag_princ, 1, 3) = c.cat3\n",
+        "WHERE r.eh_internacao = 1\n",
+        "\"\"\").show()"
+      ],
+      "metadata": {
+        "id": "RKEGlb9kg7Sc"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "## External sources / Fontes externas\n",
+        "\n",
+        "### cid10_cat (CID-10 category lookup / tabela de categorias CID-10)\n",
+        "\n",
+        "#### PT\n",
+        "\n",
+        "- **Fonte:** arquivo `CID10.DBF` do DATASUS (FTP: `ftp.datasus.gov.br/dissemin/publicos/SIM/CID10/TABELAS/`), em categorias de 3 caracteres (colunas `cat3` e `descricao`).\n",
+        "- **Complemento manual:** o teste de cobertura encontrou 6 internações sem descrição, em 4 códigos (U09, U099, U10, U109). Eles pertencem a 2 categorias criadas pela OMS para a COVID-19 e ausentes da tabela antiga do DATASUS: U09 (condição pós-COVID-19) e U10 (síndrome inflamatória multissistêmica associada à COVID-19). A tabela passou de 2.046 para 2.048 linhas.\n",
+        "- **Origem do texto:** atualizações de uso emergencial da CID-10 da OMS (em inglês). A tradução para o português é do autor.\n",
+        "- **Identificação:** coluna `fonte` (\"DATASUS CID10.DBF\" ou \"complemento manual (OMS)\").\n",
+        "- **Validação:** 2.048 linhas, 2.048 `cat3` distintos, 0 nulos; cobertura de 2.248.946 de 2.248.946 internações (100%).\n",
+        "\n",
+        "#### EN\n",
+        "\n",
+        "- **Source:** DATASUS `CID10.DBF` file (FTP: `ftp.datasus.gov.br/dissemin/publicos/SIM/CID10/TABELAS/`), at 3-character category level (columns `cat3` and `descricao`).\n",
+        "- **Manual addition:** the coverage test found 6 admissions without a description, across 4 codes (U09, U099, U10, U109). They belong to 2 categories created by WHO for COVID-19 and missing from the old DATASUS table: U09 (post COVID-19 condition) and U10 (multisystem inflammatory syndrome associated with COVID-19). The table went from 2,046 to 2,048 rows.\n",
+        "- **Text origin:** WHO ICD-10 emergency-use updates (English). The Portuguese translation is the author's own.\n",
+        "- **Traceability:** column `fonte` (\"DATASUS CID10.DBF\" or \"complemento manual (OMS)\").\n",
+        "- **Validation:** 2,048 rows, 2,048 distinct `cat3`, 0 nulls; coverage of 2,248,946 of 2,248,946 admissions (100%)."
+      ],
+      "metadata": {
+        "id": "8gwTqGD4jJsG"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# EN: Check if VAL_UTI is already inside VAL_SH + VAL_SP\n",
+        "# PT: Confere se o VAL_UTI já está dentro de VAL_SH + VAL_SP\n",
+        "duckdb.sql(\"\"\"\n",
+        "SELECT\n",
+        "    COUNT(*) AS linhas,\n",
+        "    -- EN: rows with UTI value / PT: linhas com valor de UTI\n",
+        "    COUNT(*) FILTER (WHERE TRY_CAST(VAL_UTI AS DOUBLE) > 0) AS com_uti,\n",
+        "    -- EN: rows where UTI > SH+SP (UTI would NOT be contained)\n",
+        "    -- PT: linhas em que UTI > SH+SP (UTI NÃO estaria contido)\n",
+        "    COUNT(*) FILTER (\n",
+        "        WHERE TRY_CAST(VAL_UTI AS DOUBLE)\n",
+        "            > TRY_CAST(VAL_SH AS DOUBLE) + TRY_CAST(VAL_SP AS DOUBLE)\n",
+        "    ) AS uti_maior_que_sh_sp,\n",
+        "    -- EN: rows where SH+SP+UTI > val_tot (UTI would be extra)\n",
+        "    -- PT: linhas em que SH+SP+UTI > val_tot (UTI seria extra)\n",
+        "    COUNT(*) FILTER (\n",
+        "        WHERE TRY_CAST(VAL_SH AS DOUBLE) + TRY_CAST(VAL_SP AS DOUBLE)\n",
+        "            + TRY_CAST(VAL_UTI AS DOUBLE)\n",
+        "            > val_tot + 0.01\n",
+        "    ) AS soma_estoura_total\n",
+        "FROM rd_clean\n",
+        "\"\"\").show()"
+      ],
+      "metadata": {
+        "id": "G_OrU-7Y0R_A"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# EN: Q1 - Spending by component, by discharge month (all rows, per project rule)\n",
+        "# PT: P1 - Gasto por componente, por mês de saída (todas as linhas, regra do projeto)\n",
+        "duckdb.sql(\"\"\"\n",
+        "WITH mensal AS (\n",
+        "    SELECT\n",
+        "        DATE_TRUNC('month', dt_saida)::DATE AS mes_saida,\n",
+        "        SUM(TRY_CAST(VAL_SH AS DOUBLE))     AS val_sh,\n",
+        "        SUM(TRY_CAST(VAL_SP AS DOUBLE))     AS val_sp,\n",
+        "        -- EN: federal + manager supplements / PT: complementos federal + gestor\n",
+        "        SUM(TRY_CAST(VAL_SH_FED AS DOUBLE) + TRY_CAST(VAL_SP_FED AS DOUBLE)\n",
+        "          + TRY_CAST(VAL_SH_GES AS DOUBLE) + TRY_CAST(VAL_SP_GES AS DOUBLE)) AS val_compl,\n",
+        "        -- EN: ICU is INSIDE SH+SP (do not add) / PT: UTI está DENTRO de SH+SP (não somar)\n",
+        "        SUM(TRY_CAST(VAL_UTI AS DOUBLE))    AS val_uti_dos_quais,\n",
+        "        SUM(val_tot)                        AS val_total\n",
+        "    FROM rd_clean\n",
+        "    GROUP BY 1\n",
+        ")\n",
+        "SELECT\n",
+        "    mes_saida,\n",
+        "    ROUND(val_sh / 1e6, 2)    AS sh_mi,\n",
+        "    ROUND(val_sp / 1e6, 2)    AS sp_mi,\n",
+        "    ROUND(val_compl / 1e6, 2) AS compl_mi,\n",
+        "    ROUND(val_total / 1e6, 2) AS total_mi,\n",
+        "    ROUND(val_uti_dos_quais / 1e6, 2) AS uti_dos_quais_mi,\n",
+        "    -- EN: validation, must be ~0 / PT: validação, deve ser ~0\n",
+        "    ROUND(val_total - val_sh - val_sp - val_compl, 2) AS residuo\n",
+        "FROM mensal\n",
+        "ORDER BY mes_saida\n",
+        "\"\"\").show(max_rows=40)"
+      ],
+      "metadata": {
+        "id": "UJ0fMIGp1NPc"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
